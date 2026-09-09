@@ -15,6 +15,9 @@ Features:
 - Gesture confirmation and mode stability
 - Mode transition action lock
 - Click cooldown protection
+- Deliberate click debounce
+- Gesture hysteresis / release protection
+- Click movement lock
 - Windows volume fallback support
 - On-screen diagnostics
 - Python 3.14 compatible
@@ -58,6 +61,11 @@ CAMERA_HEIGHT = 480
 
 SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
 
+
+# ============================================================
+# CURSOR CONFIGURATION
+# ============================================================
+
 FRAME_R_MIN_X = 110
 FRAME_R_MAX_X = 620
 
@@ -65,10 +73,16 @@ FRAME_R_MIN_Y = 20
 FRAME_R_MAX_Y = 350
 
 CURSOR_DEADZONE = 2.5
+
 MAX_CURSOR_STEP = 100
 
 MIN_SMOOTHING = 0.30
 MAX_SMOOTHING = 0.75
+
+
+# ============================================================
+# CLICK CONFIGURATION
+# ============================================================
 
 CLICK_THRESHOLD = 40
 RIGHT_CLICK_THRESHOLD = 50
@@ -76,49 +90,61 @@ RIGHT_CLICK_THRESHOLD = 50
 LEFT_CLICK_COOLDOWN = 0.45
 RIGHT_CLICK_COOLDOWN = 0.60
 
+CLICK_CONFIRM_FRAMES = 3
+
+
+# ============================================================
+# FEATURE 5 - CLICK MOVEMENT LOCK
+# ============================================================
+
+# When a click gesture is being detected, cursor movement
+# is temporarily paused.
+#
+# This prevents the cursor from drifting while the user
+# performs a pinch/click gesture.
+
+CLICK_MOVEMENT_LOCK = True
+
+
+# ============================================================
+# VOLUME CONFIGURATION
+# ============================================================
+
 VOLUME_MIN_DISTANCE = 20
 VOLUME_MAX_DISTANCE = 200
 
+
+# ============================================================
+# SCROLL CONFIGURATION
+# ============================================================
+
 SCROLL_STEP = 60
 
-# Number of consecutive frames required before
-# accepting a new gesture mode.
+
+# ============================================================
+# FEATURE 1 - GESTURE CONFIRMATION
+# ============================================================
+
 GESTURE_CONFIRM_FRAMES = 4
 
-# ------------------------------------------------------------
+
+# ============================================================
 # FEATURE 2 - ACTION LOCK
-# ------------------------------------------------------------
-#
-# After a confirmed gesture mode changes, actions are
-# temporarily disabled.
-#
-# This prevents accidental cursor movement, clicks,
-# scrolling, or volume changes during a gesture transition.
-#
+# ============================================================
 
 ACTION_LOCK_DURATION = 0.30
 
-# ------------------------------------------------------------
-# FEATURE 3 - DELIBERATE CLICK DEBOUNCE
-# ------------------------------------------------------------
 
-CLICK_CONFIRM_FRAMES = 3
-
-CLICK_CONFIRM_FRAMES = 3
-
-# ------------------------------------------------------------
+# ============================================================
 # FEATURE 4 - GESTURE HYSTERESIS
-# ------------------------------------------------------------
-#
-# Number of consecutive NEUTRAL detections required before
-# releasing the currently active gesture.
-#
-# A short recognition glitch will therefore not immediately
-# destroy the active gesture.
-#
+# ============================================================
 
 GESTURE_RELEASE_FRAMES = 3
 
+
+# ============================================================
+# DEBUG
+# ============================================================
 
 SHOW_DEBUG = True
 
@@ -136,6 +162,11 @@ last_right_click = 0
 
 last_scroll_time = 0
 
+
+# ============================================================
+# CURSOR STATE
+# ============================================================
+
 previous_cursor_x = SCREEN_WIDTH // 2
 previous_cursor_y = SCREEN_HEIGHT // 2
 
@@ -145,27 +176,38 @@ smoothed_cursor_y = SCREEN_HEIGHT // 2
 raw_cursor_x = SCREEN_WIDTH // 2
 raw_cursor_y = SCREEN_HEIGHT // 2
 
-current_mode = "NEUTRAL"
 
 # ============================================================
-# GESTURE STABILITY STATE
+# MODE STATE
+# ============================================================
+
+current_mode = "NEUTRAL"
+
+
+# ============================================================
+# FEATURE 1 - GESTURE STABILITY STATE
 # ============================================================
 
 candidate_mode = "NEUTRAL"
 candidate_mode_count = 0
+
 stable_mode = "NEUTRAL"
+
 
 # ============================================================
 # FEATURE 2 - ACTION LOCK STATE
 # ============================================================
 
 previous_stable_mode = "NEUTRAL"
+
 last_mode_change = 0
+
 actions_locked = False
 
-# ------------------------------------------------------------
+
+# ============================================================
 # FEATURE 3 - CLICK DEBOUNCE STATE
-# ------------------------------------------------------------
+# ============================================================
 
 left_click_candidate_count = 0
 right_click_candidate_count = 0
@@ -173,11 +215,24 @@ right_click_candidate_count = 0
 left_click_armed = True
 right_click_armed = True
 
-# ------------------------------------------------------------
+
+# ============================================================
 # FEATURE 4 - GESTURE HYSTERESIS STATE
-# ------------------------------------------------------------
+# ============================================================
 
 neutral_candidate_count = 0
+
+
+# ============================================================
+# FEATURE 5 - CLICK MOVEMENT LOCK STATE
+# ============================================================
+
+click_movement_locked = False
+
+
+# ============================================================
+# FPS
+# ============================================================
 
 fps = 0
 
@@ -553,6 +608,7 @@ print("CURSOR")
 print(
     "  Thumb + all four fingers extended"
 )
+
 print(
     "  Move index finger to control cursor"
 )
@@ -577,6 +633,7 @@ print("VOLUME")
 print(
     "  Index finger only"
 )
+
 print(
     "  Thumb + index distance controls volume"
 )
@@ -617,6 +674,11 @@ print(
     f"{GESTURE_RELEASE_FRAMES} frames"
 )
 
+print(
+    f"Click movement lock: "
+    f"{'ON' if CLICK_MOVEMENT_LOCK else 'OFF'}"
+)
+
 print()
 
 print("Press Q or ESC to exit.")
@@ -644,18 +706,20 @@ while True:
 
         continue
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # MIRROR CAMERA
-    # --------------------------------------------------------
+    # ========================================================
 
     img = cv2.flip(
         img,
         1
     )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # HAND DETECTION
-    # --------------------------------------------------------
+    # ========================================================
 
     img = detector.find_hands(
         img,
@@ -667,9 +731,10 @@ while True:
         handNo=0
     )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # DEFAULT MODE
-    # --------------------------------------------------------
+    # ========================================================
 
     detected_mode = "NEUTRAL"
 
@@ -681,49 +746,65 @@ while True:
         0
     ]
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # PROCESS HAND
-    # --------------------------------------------------------
+    # ========================================================
 
     if len(lmList) != 0:
 
-        # ----------------------------------------------------
+        # ====================================================
         # FINGER DETECTION
-        # ----------------------------------------------------
+        # ====================================================
 
         # Thumb
+
         if lmList[4][1] > lmList[3][1]:
             fingers[0] = 1
+
         else:
             fingers[0] = 0
 
+
         # Index
+
         if lmList[8][2] < lmList[6][2]:
             fingers[1] = 1
+
         else:
             fingers[1] = 0
 
+
         # Middle
+
         if lmList[12][2] < lmList[10][2]:
             fingers[2] = 1
+
         else:
             fingers[2] = 0
 
+
         # Ring
+
         if lmList[16][2] < lmList[14][2]:
             fingers[3] = 1
+
         else:
             fingers[3] = 0
 
+
         # Pinky
+
         if lmList[20][2] < lmList[18][2]:
             fingers[4] = 1
+
         else:
             fingers[4] = 0
 
-        # ----------------------------------------------------
+
+        # ====================================================
         # FINGER STATES
-        # ----------------------------------------------------
+        # ====================================================
 
         thumb = fingers[0]
         index = fingers[1]
@@ -731,9 +812,10 @@ while True:
         ring = fingers[3]
         pinky = fingers[4]
 
-        # ----------------------------------------------------
+
+        # ====================================================
         # MODE DETECTION
-        # ----------------------------------------------------
+        # ====================================================
 
         if (
             index == 1
@@ -743,6 +825,7 @@ while True:
         ):
 
             detected_mode = "VOLUME"
+
 
         elif (
             index == 1
@@ -754,6 +837,7 @@ while True:
 
             detected_mode = "SCROLL"
 
+
         elif (
             thumb == 1
             and index == 1
@@ -764,35 +848,30 @@ while True:
 
             detected_mode = "CURSOR"
 
+
         else:
 
             detected_mode = "NEUTRAL"
 
-                # ----------------------------------------------------
-        # GESTURE CONFIRMATION
-        # ----------------------------------------------------
-        #
-        # A new gesture must remain consistent for several
-        # consecutive frames before becoming active.
-        #
-        # ----------------------------------------------------
+
+        # ====================================================
+        # FEATURE 1 + FEATURE 4
+        # GESTURE CONFIRMATION + HYSTERESIS
+        # ====================================================
 
         if detected_mode == "NEUTRAL":
 
-            # ------------------------------------------------
-            # FEATURE 4 - TEMPORARY GESTURE LOSS PROTECTION
-            # ------------------------------------------------
-            #
-            # Do not immediately destroy the current gesture
-            # because of one or two uncertain frames.
-            #
-            # Actions are locked while the gesture is uncertain.
-            #
+            # ----------------------------------------------
+            # TEMPORARY GESTURE LOSS PROTECTION
+            # ----------------------------------------------
 
             neutral_candidate_count += 1
 
             candidate_mode = "NEUTRAL"
-            candidate_mode_count = neutral_candidate_count
+
+            candidate_mode_count = (
+                neutral_candidate_count
+            )
 
             if (
                 neutral_candidate_count
@@ -801,11 +880,12 @@ while True:
 
                 stable_mode = "NEUTRAL"
 
+
         else:
 
-            # ------------------------------------------------
-            # A VALID GESTURE WAS DETECTED
-            # ------------------------------------------------
+            # ----------------------------------------------
+            # VALID GESTURE
+            # ----------------------------------------------
 
             neutral_candidate_count = 0
 
@@ -816,7 +896,9 @@ while True:
             else:
 
                 candidate_mode = detected_mode
+
                 candidate_mode_count = 1
+
 
             if (
                 candidate_mode_count
@@ -825,11 +907,12 @@ while True:
 
                 stable_mode = candidate_mode
 
+
     else:
 
-        # ----------------------------------------------------
+        # ====================================================
         # NO HAND DETECTED
-        # ----------------------------------------------------
+        # ====================================================
 
         detected_mode = "NEUTRAL"
 
@@ -841,31 +924,28 @@ while True:
 
         neutral_candidate_count = 0
 
-        stable_mode = "NEUTRAL"
 
-    # --------------------------------------------------------
+        # Reset click states when hand disappears.
+
+        left_click_candidate_count = 0
+        right_click_candidate_count = 0
+
+        left_click_armed = True
+        right_click_armed = True
+
+        click_movement_locked = False
+
+
+    # ========================================================
     # CURRENT TIME
-    # --------------------------------------------------------
+    # ========================================================
 
     current_time = time.time()
 
+
     # ========================================================
-    # FEATURE 2 - MODE TRANSITION ACTION LOCK
-    # ========================================================
-    #
-    # Whenever the confirmed mode changes, start a short
-    # safety timer.
-    #
-    # Example:
-    #
-    # CURSOR -> VOLUME
-    #
-    # The new mode is detected immediately, but actions remain
-    # locked for ACTION_LOCK_DURATION seconds.
-    #
-    # This prevents accidental clicks, scrolling, cursor
-    # movement, or volume changes while changing gestures.
-    #
+    # FEATURE 2
+    # MODE TRANSITION ACTION LOCK
     # ========================================================
 
     if stable_mode != previous_stable_mode:
@@ -874,19 +954,17 @@ while True:
 
         previous_stable_mode = stable_mode
 
+
     actions_locked = (
         current_time - last_mode_change
         < ACTION_LOCK_DURATION
     )
 
-    # ------------------------------------------------------------
-    # FEATURE 4 - UNCERTAIN GESTURE LOCK
-    # ------------------------------------------------------------
-    #
-    # If the currently active gesture temporarily becomes
-    # NEUTRAL, do not perform any action until the gesture
-    # either returns or is fully released.
-    #
+
+    # ========================================================
+    # FEATURE 4
+    # UNCERTAIN GESTURE LOCK
+    # ========================================================
 
     if (
         detected_mode == "NEUTRAL"
@@ -895,6 +973,115 @@ while True:
 
         actions_locked = True
 
+
+    # ========================================================
+    # FEATURE 5
+    # CLICK GESTURE DETECTION
+    # ========================================================
+
+    click_movement_locked = False
+
+
+    if (
+        stable_mode == "CURSOR"
+        and len(lmList) != 0
+    ):
+
+        # ----------------------------------------------------
+        # THUMB
+        # ----------------------------------------------------
+
+        thumb_x = lmList[4][1]
+        thumb_y = lmList[4][2]
+
+
+        # ----------------------------------------------------
+        # WRIST
+        # ----------------------------------------------------
+
+        wrist_x = lmList[0][1]
+        wrist_y = lmList[0][2]
+
+
+        # ----------------------------------------------------
+        # INDEX
+        # ----------------------------------------------------
+
+        index_x = lmList[8][1]
+        index_y = lmList[8][2]
+
+
+        # ----------------------------------------------------
+        # PINKY
+        # ----------------------------------------------------
+
+        pinky_x = lmList[20][1]
+        pinky_y = lmList[20][2]
+
+
+        # ----------------------------------------------------
+        # LEFT CLICK DISTANCES
+        # ----------------------------------------------------
+
+        thumb_palm_distance = get_distance(
+            (thumb_x, thumb_y),
+            (wrist_x, wrist_y)
+        )
+
+        thumb_index_distance = get_distance(
+            (thumb_x, thumb_y),
+            (index_x, index_y)
+        )
+
+
+        # ----------------------------------------------------
+        # RIGHT CLICK DISTANCES
+        # ----------------------------------------------------
+
+        pinky_palm_distance = get_distance(
+            (pinky_x, pinky_y),
+            (wrist_x, wrist_y)
+        )
+
+        thumb_pinky_distance = get_distance(
+            (thumb_x, thumb_y),
+            (pinky_x, pinky_y)
+        )
+
+
+        # ----------------------------------------------------
+        # CLICK GESTURES
+        # ----------------------------------------------------
+
+        left_click_gesture = (
+            thumb_palm_distance < CLICK_THRESHOLD
+            or
+            thumb_index_distance < 35
+        )
+
+        right_click_gesture = (
+            pinky_palm_distance
+            < RIGHT_CLICK_THRESHOLD
+            or
+            thumb_pinky_distance < 40
+        )
+
+
+        # ----------------------------------------------------
+        # FEATURE 5
+        # LOCK CURSOR WHILE CLICK GESTURE IS ACTIVE
+        # ----------------------------------------------------
+
+        if CLICK_MOVEMENT_LOCK:
+
+            if (
+                left_click_gesture
+                or right_click_gesture
+            ):
+
+                click_movement_locked = True
+
+
     # ========================================================
     # CURSOR MODE
     # ========================================================
@@ -902,6 +1089,8 @@ while True:
     if (
         stable_mode == "CURSOR"
         and not actions_locked
+        and len(lmList) != 0
+        and not click_movement_locked
     ):
 
         # ----------------------------------------------------
@@ -911,6 +1100,11 @@ while True:
         index_x = lmList[8][1]
         index_y = lmList[8][2]
 
+
+        # ----------------------------------------------------
+        # RAW CURSOR
+        # ----------------------------------------------------
+
         raw_cursor_x, raw_cursor_y = (
             map_cursor_coordinates(
                 index_x,
@@ -918,8 +1112,9 @@ while True:
             )
         )
 
+
         # ----------------------------------------------------
-        # CALCULATE STABLE CURSOR
+        # STABLE CURSOR
         # ----------------------------------------------------
 
         (
@@ -931,6 +1126,7 @@ while True:
             smoothed_cursor_x,
             smoothed_cursor_y
         )
+
 
         # ----------------------------------------------------
         # MOVE CURSOR
@@ -952,8 +1148,19 @@ while True:
                     f"⚠️ Cursor movement error: {e}"
                 )
 
+
+    # ========================================================
+    # LEFT CLICK
+    # ========================================================
+
+    if (
+        stable_mode == "CURSOR"
+        and not actions_locked
+        and len(lmList) != 0
+    ):
+
         # ----------------------------------------------------
-        # LEFT CLICK
+        # LEFT CLICK DISTANCES
         # ----------------------------------------------------
 
         thumb_x = lmList[4][1]
@@ -962,21 +1169,31 @@ while True:
         wrist_x = lmList[0][1]
         wrist_y = lmList[0][2]
 
+        thumb_index_distance = get_distance(
+            (lmList[4][1], lmList[4][2]),
+            (lmList[8][1], lmList[8][2])
+        )
+
         thumb_palm_distance = get_distance(
             (thumb_x, thumb_y),
             (wrist_x, wrist_y)
         )
 
-        thumb_index_distance = get_distance(
-            (lmList[4][1], lmList[4][2]),
-            (lmList[8][1], lmList[8][2])
-        )
+
+        # ----------------------------------------------------
+        # LEFT CLICK GESTURE
+        # ----------------------------------------------------
 
         left_click_gesture = (
             thumb_palm_distance < CLICK_THRESHOLD
             or
             thumb_index_distance < 35
         )
+
+
+        # ----------------------------------------------------
+        # CONFIRM LEFT CLICK
+        # ----------------------------------------------------
 
         if left_click_gesture:
 
@@ -998,6 +1215,7 @@ while True:
                     pyautogui.click()
 
                     last_left_click = current_time
+
                     left_click_armed = False
 
                 except Exception as e:
@@ -1011,30 +1229,45 @@ while True:
         else:
 
             left_click_candidate_count = 0
+
             left_click_armed = True
 
-        # ----------------------------------------------------
+
+        # ====================================================
         # RIGHT CLICK
-        # ----------------------------------------------------
+        # ====================================================
 
         pinky_x = lmList[20][1]
         pinky_y = lmList[20][2]
+
 
         pinky_palm_distance = get_distance(
             (pinky_x, pinky_y),
             (wrist_x, wrist_y)
         )
 
+
         thumb_pinky_distance = get_distance(
             (lmList[4][1], lmList[4][2]),
             (lmList[20][1], lmList[20][2])
         )
 
+
+        # ----------------------------------------------------
+        # RIGHT CLICK GESTURE
+        # ----------------------------------------------------
+
         right_click_gesture = (
-            pinky_palm_distance < RIGHT_CLICK_THRESHOLD
+            pinky_palm_distance
+            < RIGHT_CLICK_THRESHOLD
             or
             thumb_pinky_distance < 40
         )
+
+
+        # ----------------------------------------------------
+        # CONFIRM RIGHT CLICK
+        # ----------------------------------------------------
 
         if right_click_gesture:
 
@@ -1056,6 +1289,7 @@ while True:
                     pyautogui.rightClick()
 
                     last_right_click = current_time
+
                     right_click_armed = False
 
                 except Exception as e:
@@ -1069,7 +1303,9 @@ while True:
         else:
 
             right_click_candidate_count = 0
+
             right_click_armed = True
+
 
     # ========================================================
     # SCROLL MODE
@@ -1078,6 +1314,7 @@ while True:
     elif (
         stable_mode == "SCROLL"
         and not actions_locked
+        and len(lmList) != 0
     ):
 
         if (
@@ -1087,16 +1324,18 @@ while True:
         ):
 
             # ------------------------------------------------
-            # INDEX FINGER Y POSITION
+            # INDEX Y
             # ------------------------------------------------
 
             index_y = lmList[8][2]
 
+
             # ------------------------------------------------
-            # MIDDLE FINGER Y POSITION
+            # MIDDLE Y
             # ------------------------------------------------
 
             middle_y = lmList[12][2]
+
 
             # ------------------------------------------------
             # SCROLL CENTER
@@ -1106,6 +1345,7 @@ while True:
                 FRAME_R_MIN_Y
                 + FRAME_R_MAX_Y
             ) / 2
+
 
             # ------------------------------------------------
             # SCROLL UP
@@ -1127,6 +1367,7 @@ while True:
                             f"⚠️ Scroll error: {e}"
                         )
 
+
             # ------------------------------------------------
             # SCROLL DOWN
             # ------------------------------------------------
@@ -1147,7 +1388,9 @@ while True:
                             f"⚠️ Scroll error: {e}"
                         )
 
+
             last_scroll_time = current_time
+
 
     # ========================================================
     # VOLUME MODE
@@ -1156,22 +1399,34 @@ while True:
     elif (
         stable_mode == "VOLUME"
         and not actions_locked
+        and len(lmList) != 0
     ):
 
         # ----------------------------------------------------
-        # THUMB + INDEX DISTANCE
+        # THUMB
         # ----------------------------------------------------
 
         thumb_x = lmList[4][1]
         thumb_y = lmList[4][2]
 
+
+        # ----------------------------------------------------
+        # INDEX
+        # ----------------------------------------------------
+
         index_x = lmList[8][1]
         index_y = lmList[8][2]
+
+
+        # ----------------------------------------------------
+        # DISTANCE
+        # ----------------------------------------------------
 
         distance = get_distance(
             (thumb_x, thumb_y),
             (index_x, index_y)
         )
+
 
         # ----------------------------------------------------
         # VOLUME CONTROL
@@ -1185,6 +1440,7 @@ while True:
                     volume.GetVolumeRange()
                 )
 
+
                 volume_level = np.interp(
                     distance,
                     [
@@ -1197,11 +1453,13 @@ while True:
                     ]
                 )
 
+
                 volume_level = clamp(
                     volume_level,
                     min_vol,
                     max_vol
                 )
+
 
                 volume.SetMasterVolumeLevel(
                     float(volume_level),
@@ -1216,8 +1474,9 @@ while True:
                         f"⚠️ Volume control error: {e}"
                     )
 
+
         # ----------------------------------------------------
-        # DISPLAY VOLUME DISTANCE
+        # VOLUME DISTANCE DISPLAY
         # ----------------------------------------------------
 
         cv2.putText(
@@ -1230,6 +1489,7 @@ while True:
             2
         )
 
+
     # ========================================================
     # NEUTRAL MODE
     # ========================================================
@@ -1238,11 +1498,13 @@ while True:
 
         pass
 
+
     # ========================================================
     # MODE UPDATE
     # ========================================================
 
     current_mode = stable_mode
+
 
     # ========================================================
     # FPS CALCULATION
@@ -1263,6 +1525,7 @@ while True:
 
     prev_time = current_time
 
+
     # ========================================================
     # HEADER BACKGROUND
     # ========================================================
@@ -1274,6 +1537,7 @@ while True:
         (0, 0, 0),
         -1
     )
+
 
     # ========================================================
     # MODE DISPLAY
@@ -1289,6 +1553,7 @@ while True:
         2
     )
 
+
     # ========================================================
     # FPS DISPLAY
     # ========================================================
@@ -1302,6 +1567,7 @@ while True:
         (255, 255, 255),
         2
     )
+
 
     # ========================================================
     # VOLUME STATUS
@@ -1327,6 +1593,7 @@ while True:
 
         volume_status = "VOL: OFF"
 
+
     cv2.putText(
         img,
         volume_status,
@@ -1336,6 +1603,7 @@ while True:
         (255, 255, 255),
         2
     )
+
 
     # ========================================================
     # VERSION DISPLAY
@@ -1350,6 +1618,7 @@ while True:
         (255, 255, 255),
         2
     )
+
 
     # ========================================================
     # DEBUG INFORMATION
@@ -1371,6 +1640,7 @@ while True:
             1
         )
 
+
         # ----------------------------------------------------
         # CURSOR POSITION
         # ----------------------------------------------------
@@ -1389,6 +1659,7 @@ while True:
             1
         )
 
+
         # ----------------------------------------------------
         # FINGER STATES
         # ----------------------------------------------------
@@ -1403,8 +1674,9 @@ while True:
             1
         )
 
+
         # ----------------------------------------------------
-        # FRAME RANGE X
+        # FRAME X
         # ----------------------------------------------------
 
         cv2.putText(
@@ -1421,8 +1693,9 @@ while True:
             1
         )
 
+
         # ----------------------------------------------------
-        # FRAME RANGE Y
+        # FRAME Y
         # ----------------------------------------------------
 
         cv2.putText(
@@ -1439,8 +1712,9 @@ while True:
             1
         )
 
+
         # ----------------------------------------------------
-        # GESTURE CONFIRMATION STATUS
+        # GESTURE CONFIRMATION
         # ----------------------------------------------------
 
         cv2.putText(
@@ -1458,8 +1732,9 @@ while True:
             1
         )
 
+
         # ----------------------------------------------------
-        # ACTION LOCK STATUS
+        # ACTION LOCK
         # ----------------------------------------------------
 
         if actions_locked:
@@ -1470,6 +1745,7 @@ while True:
 
             action_status = "Action: READY"
 
+
         cv2.putText(
             img,
             action_status,
@@ -1479,6 +1755,11 @@ while True:
             (255, 255, 255),
             1
         )
+
+
+        # ----------------------------------------------------
+        # CLICK CONFIRMATION
+        # ----------------------------------------------------
 
         cv2.putText(
             img,
@@ -1495,6 +1776,11 @@ while True:
             1
         )
 
+
+        # ----------------------------------------------------
+        # RELEASE PROTECTION
+        # ----------------------------------------------------
+
         cv2.putText(
             img,
             (
@@ -1508,6 +1794,31 @@ while True:
             (255, 255, 255),
             1
         )
+
+
+        # ----------------------------------------------------
+        # FEATURE 5 STATUS
+        # ----------------------------------------------------
+
+        if click_movement_locked:
+
+            click_lock_status = "Click Lock: ON"
+
+        else:
+
+            click_lock_status = "Click Lock: OFF"
+
+
+        cv2.putText(
+            img,
+            click_lock_status,
+            (15, 335),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1
+        )
+
 
     # ========================================================
     # CONTROL GUIDE
@@ -1523,6 +1834,7 @@ while True:
         1
     )
 
+
     # ========================================================
     # SHOW WINDOW
     # ========================================================
@@ -1531,6 +1843,7 @@ while True:
         "Virtual Mouse",
         img
     )
+
 
     # ========================================================
     # KEYBOARD CONTROL
