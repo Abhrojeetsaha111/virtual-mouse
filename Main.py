@@ -98,6 +98,12 @@ GESTURE_CONFIRM_FRAMES = 4
 
 ACTION_LOCK_DURATION = 0.30
 
+# ------------------------------------------------------------
+# FEATURE 3 - DELIBERATE CLICK DEBOUNCE
+# ------------------------------------------------------------
+
+CLICK_CONFIRM_FRAMES = 3
+
 SHOW_DEBUG = True
 
 
@@ -140,6 +146,16 @@ stable_mode = "NEUTRAL"
 previous_stable_mode = "NEUTRAL"
 last_mode_change = 0
 actions_locked = False
+
+# ------------------------------------------------------------
+# FEATURE 3 - CLICK DEBOUNCE STATE
+# ------------------------------------------------------------
+
+left_click_candidate_count = 0
+right_click_candidate_count = 0
+
+left_click_armed = True
+right_click_armed = True
 
 fps = 0
 
@@ -569,6 +585,11 @@ print(
     f"{ACTION_LOCK_DURATION:.2f} seconds"
 )
 
+print(
+    f"Click confirmation: "
+    f"{CLICK_CONFIRM_FRAMES} frames"
+)
+
 print()
 
 print("Press Q or ESC to exit.")
@@ -872,26 +893,33 @@ while True:
             (lmList[8][1], lmList[8][2])
         )
 
-        if (
-            thumb_palm_distance
-            < CLICK_THRESHOLD
+        left_click_gesture = (
+            thumb_palm_distance < CLICK_THRESHOLD
             or
             thumb_index_distance < 35
-        ):
+        )
+
+        if left_click_gesture:
+
+            left_click_candidate_count += 1
 
             if (
-                current_time
-                - last_left_click
-                >= LEFT_CLICK_COOLDOWN
+                left_click_candidate_count
+                >= CLICK_CONFIRM_FRAMES
+                and left_click_armed
+                and (
+                    current_time
+                    - last_left_click
+                    >= LEFT_CLICK_COOLDOWN
+                )
             ):
 
                 try:
 
                     pyautogui.click()
 
-                    last_left_click = (
-                        current_time
-                    )
+                    last_left_click = current_time
+                    left_click_armed = False
 
                 except Exception as e:
 
@@ -900,6 +928,11 @@ while True:
                         print(
                             f"⚠️ Left click error: {e}"
                         )
+
+        else:
+
+            left_click_candidate_count = 0
+            left_click_armed = True
 
         # ----------------------------------------------------
         # RIGHT CLICK
@@ -918,26 +951,33 @@ while True:
             (lmList[20][1], lmList[20][2])
         )
 
-        if (
-            pinky_palm_distance
-            < RIGHT_CLICK_THRESHOLD
+        right_click_gesture = (
+            pinky_palm_distance < RIGHT_CLICK_THRESHOLD
             or
             thumb_pinky_distance < 40
-        ):
+        )
+
+        if right_click_gesture:
+
+            right_click_candidate_count += 1
 
             if (
-                current_time
-                - last_right_click
-                >= RIGHT_CLICK_COOLDOWN
+                right_click_candidate_count
+                >= CLICK_CONFIRM_FRAMES
+                and right_click_armed
+                and (
+                    current_time
+                    - last_right_click
+                    >= RIGHT_CLICK_COOLDOWN
+                )
             ):
 
                 try:
 
                     pyautogui.rightClick()
 
-                    last_right_click = (
-                        current_time
-                    )
+                    last_right_click = current_time
+                    right_click_armed = False
 
                 except Exception as e:
 
@@ -946,6 +986,11 @@ while True:
                         print(
                             f"⚠️ Right click error: {e}"
                         )
+
+        else:
+
+            right_click_candidate_count = 0
+            right_click_armed = True
 
     # ========================================================
     # SCROLL MODE
@@ -1350,6 +1395,21 @@ while True:
             img,
             action_status,
             (15, 275),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1
+        )
+
+        cv2.putText(
+            img,
+            (
+                f"Click L:{left_click_candidate_count}/"
+                f"{CLICK_CONFIRM_FRAMES} "
+                f"R:{right_click_candidate_count}/"
+                f"{CLICK_CONFIRM_FRAMES}"
+            ),
+            (15, 295),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             (255, 255, 255),
