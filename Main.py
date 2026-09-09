@@ -13,6 +13,7 @@ Features:
 - Cursor dead-zone
 - Maximum cursor jump protection
 - Gesture confirmation and mode stability
+- Mode transition action lock
 - Click cooldown protection
 - Windows volume fallback support
 - On-screen diagnostics
@@ -84,6 +85,19 @@ SCROLL_STEP = 60
 # accepting a new gesture mode.
 GESTURE_CONFIRM_FRAMES = 4
 
+# ------------------------------------------------------------
+# FEATURE 2 - ACTION LOCK
+# ------------------------------------------------------------
+#
+# After a confirmed gesture mode changes, actions are
+# temporarily disabled.
+#
+# This prevents accidental cursor movement, clicks,
+# scrolling, or volume changes during a gesture transition.
+#
+
+ACTION_LOCK_DURATION = 0.30
+
 SHOW_DEBUG = True
 
 
@@ -111,10 +125,21 @@ raw_cursor_y = SCREEN_HEIGHT // 2
 
 current_mode = "NEUTRAL"
 
-# Gesture stability state
+# ============================================================
+# GESTURE STABILITY STATE
+# ============================================================
+
 candidate_mode = "NEUTRAL"
 candidate_mode_count = 0
 stable_mode = "NEUTRAL"
+
+# ============================================================
+# FEATURE 2 - ACTION LOCK STATE
+# ============================================================
+
+previous_stable_mode = "NEUTRAL"
+last_mode_change = 0
+actions_locked = False
 
 fps = 0
 
@@ -539,6 +564,11 @@ print(
     f"{GESTURE_CONFIRM_FRAMES} frames"
 )
 
+print(
+    f"Action lock: "
+    f"{ACTION_LOCK_DURATION:.2f} seconds"
+)
+
 print()
 
 print("Press Q or ESC to exit.")
@@ -697,8 +727,6 @@ while True:
         # A new gesture must remain consistent for several
         # consecutive frames before becoming active.
         #
-        # This prevents one noisy MediaPipe frame from
-        # immediately changing the active mode.
         # ----------------------------------------------------
 
         if detected_mode == candidate_mode:
@@ -722,11 +750,6 @@ while True:
         # ----------------------------------------------------
         # NO HAND DETECTED
         # ----------------------------------------------------
-        #
-        # Immediately stop gesture actions so that an old
-        # gesture cannot remain active after the hand leaves
-        # the camera frame.
-        # ----------------------------------------------------
 
         detected_mode = "NEUTRAL"
 
@@ -743,10 +766,43 @@ while True:
     current_time = time.time()
 
     # ========================================================
+    # FEATURE 2 - MODE TRANSITION ACTION LOCK
+    # ========================================================
+    #
+    # Whenever the confirmed mode changes, start a short
+    # safety timer.
+    #
+    # Example:
+    #
+    # CURSOR -> VOLUME
+    #
+    # The new mode is detected immediately, but actions remain
+    # locked for ACTION_LOCK_DURATION seconds.
+    #
+    # This prevents accidental clicks, scrolling, cursor
+    # movement, or volume changes while changing gestures.
+    #
+    # ========================================================
+
+    if stable_mode != previous_stable_mode:
+
+        last_mode_change = current_time
+
+        previous_stable_mode = stable_mode
+
+    actions_locked = (
+        current_time - last_mode_change
+        < ACTION_LOCK_DURATION
+    )
+
+    # ========================================================
     # CURSOR MODE
     # ========================================================
 
-    if stable_mode == "CURSOR":
+    if (
+        stable_mode == "CURSOR"
+        and not actions_locked
+    ):
 
         # ----------------------------------------------------
         # INDEX FINGER TIP
@@ -895,9 +951,10 @@ while True:
     # SCROLL MODE
     # ========================================================
 
-    elif stable_mode == "SCROLL":
-
-        current_time = time.time()
+    elif (
+        stable_mode == "SCROLL"
+        and not actions_locked
+    ):
 
         if (
             current_time
@@ -966,15 +1023,16 @@ while True:
                             f"⚠️ Scroll error: {e}"
                         )
 
-            last_scroll_time = (
-                current_time
-            )
+            last_scroll_time = current_time
 
     # ========================================================
     # VOLUME MODE
     # ========================================================
 
-    elif stable_mode == "VOLUME":
+    elif (
+        stable_mode == "VOLUME"
+        and not actions_locked
+    ):
 
         # ----------------------------------------------------
         # THUMB + INDEX DISTANCE
@@ -1270,6 +1328,28 @@ while True:
                 f"{GESTURE_CONFIRM_FRAMES}"
             ),
             (15, 255),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1
+        )
+
+        # ----------------------------------------------------
+        # ACTION LOCK STATUS
+        # ----------------------------------------------------
+
+        if actions_locked:
+
+            action_status = "Action: LOCKED"
+
+        else:
+
+            action_status = "Action: READY"
+
+        cv2.putText(
+            img,
+            action_status,
+            (15, 275),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             (255, 255, 255),
