@@ -47,3 +47,36 @@ virtual-mouse/
 └── .gitignore
 
 ![Virtual Mouse Demo](screenshots/virtual-mouse-demo.png)
+
+## ✨ Features
+
+| Feature | Description |
+|---|---|
+| 🖱️ Virtual Cursor | Control the mouse cursor using hand movements |
+| 👆 Left Click | Perform a left click using a hand gesture |
+| 🤚 Right Click | Perform a right click using a hand gesture |
+| ↕️ Scrolling | Scroll through pages using hand gestures |
+| 🔊 Volume Control | Adjust system volume using thumb and index finger |
+| ✋ Hand Tracking | Detect and track 21 hand landmarks in real time |
+| 📷 Webcam Control | Uses the webcam for real-time gesture recognition |
+| 📊 FPS Display | Shows the current processing frame rate |
+
+## 🖐️ Gesture Controls
+
+| Gesture | Action |
+|---|---|
+| ☝️ Index + Middle + Ring + Pinky | Cursor mode |
+| ☝️ Index + Middle | Scroll mode |
+| 👍☝️ Thumb + Index | Volume control |
+| 👍 Thumb gesture | Left click |
+| 🤙 Pinky gesture | Right click |
+| ⌨️ Press `Q` | Exit the application |
+
+## 🛠️ Technology Stack
+
+- **Python** — Core programming language
+- **OpenCV** — Webcam and image processing
+- **MediaPipe** — Real-time hand landmark detection
+- **NumPy** — Numerical processing
+- **PyAutoGUI** — Mouse and scrolling control
+- **Pycaw** — Windows system volume control
