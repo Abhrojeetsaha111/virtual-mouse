@@ -104,6 +104,22 @@ ACTION_LOCK_DURATION = 0.30
 
 CLICK_CONFIRM_FRAMES = 3
 
+CLICK_CONFIRM_FRAMES = 3
+
+# ------------------------------------------------------------
+# FEATURE 4 - GESTURE HYSTERESIS
+# ------------------------------------------------------------
+#
+# Number of consecutive NEUTRAL detections required before
+# releasing the currently active gesture.
+#
+# A short recognition glitch will therefore not immediately
+# destroy the active gesture.
+#
+
+GESTURE_RELEASE_FRAMES = 3
+
+
 SHOW_DEBUG = True
 
 
@@ -156,6 +172,12 @@ right_click_candidate_count = 0
 
 left_click_armed = True
 right_click_armed = True
+
+# ------------------------------------------------------------
+# FEATURE 4 - GESTURE HYSTERESIS STATE
+# ------------------------------------------------------------
+
+neutral_candidate_count = 0
 
 fps = 0
 
@@ -590,6 +612,11 @@ print(
     f"{CLICK_CONFIRM_FRAMES} frames"
 )
 
+print(
+    f"Gesture release protection: "
+    f"{GESTURE_RELEASE_FRAMES} frames"
+)
+
 print()
 
 print("Press Q or ESC to exit.")
@@ -741,7 +768,7 @@ while True:
 
             detected_mode = "NEUTRAL"
 
-        # ----------------------------------------------------
+                # ----------------------------------------------------
         # GESTURE CONFIRMATION
         # ----------------------------------------------------
         #
@@ -750,21 +777,53 @@ while True:
         #
         # ----------------------------------------------------
 
-        if detected_mode == candidate_mode:
+        if detected_mode == "NEUTRAL":
 
-            candidate_mode_count += 1
+            # ------------------------------------------------
+            # FEATURE 4 - TEMPORARY GESTURE LOSS PROTECTION
+            # ------------------------------------------------
+            #
+            # Do not immediately destroy the current gesture
+            # because of one or two uncertain frames.
+            #
+            # Actions are locked while the gesture is uncertain.
+            #
+
+            neutral_candidate_count += 1
+
+            candidate_mode = "NEUTRAL"
+            candidate_mode_count = neutral_candidate_count
+
+            if (
+                neutral_candidate_count
+                >= GESTURE_RELEASE_FRAMES
+            ):
+
+                stable_mode = "NEUTRAL"
 
         else:
 
-            candidate_mode = detected_mode
-            candidate_mode_count = 1
+            # ------------------------------------------------
+            # A VALID GESTURE WAS DETECTED
+            # ------------------------------------------------
 
-        if (
-            candidate_mode_count
-            >= GESTURE_CONFIRM_FRAMES
-        ):
+            neutral_candidate_count = 0
 
-            stable_mode = candidate_mode
+            if detected_mode == candidate_mode:
+
+                candidate_mode_count += 1
+
+            else:
+
+                candidate_mode = detected_mode
+                candidate_mode_count = 1
+
+            if (
+                candidate_mode_count
+                >= GESTURE_CONFIRM_FRAMES
+            ):
+
+                stable_mode = candidate_mode
 
     else:
 
@@ -777,6 +836,10 @@ while True:
         candidate_mode = "NEUTRAL"
 
         candidate_mode_count = 0
+
+        stable_mode = "NEUTRAL"
+
+        neutral_candidate_count = 0
 
         stable_mode = "NEUTRAL"
 
@@ -815,6 +878,22 @@ while True:
         current_time - last_mode_change
         < ACTION_LOCK_DURATION
     )
+
+    # ------------------------------------------------------------
+    # FEATURE 4 - UNCERTAIN GESTURE LOCK
+    # ------------------------------------------------------------
+    #
+    # If the currently active gesture temporarily becomes
+    # NEUTRAL, do not perform any action until the gesture
+    # either returns or is fully released.
+    #
+
+    if (
+        detected_mode == "NEUTRAL"
+        and stable_mode != "NEUTRAL"
+    ):
+
+        actions_locked = True
 
     # ========================================================
     # CURSOR MODE
@@ -1410,6 +1489,20 @@ while True:
                 f"{CLICK_CONFIRM_FRAMES}"
             ),
             (15, 295),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1
+        )
+
+        cv2.putText(
+            img,
+            (
+                f"Release: "
+                f"{neutral_candidate_count}/"
+                f"{GESTURE_RELEASE_FRAMES}"
+            ),
+            (15, 315),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             (255, 255, 255),
