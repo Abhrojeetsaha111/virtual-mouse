@@ -45,3 +45,5 @@ virtual-mouse/
 ├── requirements.txt
 ├── README.md
 └── .gitignore
+
+![Virtual Mouse Demo](screenshots/virtual-mouse-demo.png)
