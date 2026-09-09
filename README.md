@@ -4,7 +4,7 @@ A gesture-based virtual mouse built with **Python, OpenCV, MediaPipe, and PyAuto
 
 The project uses a webcam and real-time hand tracking to allow users to control the computer mouse using hand gestures.
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python)
+![Python](https://img.shields.io/badge/Python-3.14-blue?logo=python)
 ![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-red?logo=opencv)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-Hand%20Tracking-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
@@ -56,7 +56,7 @@ The Virtual Mouse uses real-time hand tracking to control the computer through g
 
 ### Programming Language
 
-- Python
+- Python 3.14
 
 ### Computer Vision
 
@@ -104,13 +104,8 @@ virtual-mouse/
 ├── hand_landmarker.task
 ├── requirements.txt
 ├── README.md
+├── LICENSE
 ├── .gitignore
 │
 └── screenshots/
     └── virtual-mouse-demo.png
-
-## 📜 License
-
-This project is licensed under the **MIT License**.
-
-See the [LICENSE](LICENSE) file for details.
