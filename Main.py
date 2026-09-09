@@ -1,6 +1,6 @@
 """
 Virtual Mouse - Hand Gesture Controller
-Version: 1.2.3
+Version: 1.2.4
 
 Features:
 - Real-time hand tracking using MediaPipe Tasks API
@@ -12,6 +12,7 @@ Features:
 - Adaptive cursor smoothing
 - Cursor dead-zone
 - Maximum cursor jump protection
+- Gesture confirmation and mode stability
 - Click cooldown protection
 - Windows volume fallback support
 - On-screen diagnostics
@@ -27,6 +28,7 @@ import pyautogui
 
 from HandTrackingModule import HandDetector
 
+
 # ============================================================
 # WINDOWS VOLUME CONTROL
 # ============================================================
@@ -35,6 +37,7 @@ try:
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
     from comtypes import CLSCTX_ALL
     from ctypes import POINTER, cast
+
 except ImportError:
     AudioUtilities = None
     IAudioEndpointVolume = None
@@ -47,7 +50,7 @@ except ImportError:
 # CONFIGURATION
 # ============================================================
 
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
@@ -77,6 +80,10 @@ VOLUME_MAX_DISTANCE = 200
 
 SCROLL_STEP = 60
 
+# Number of consecutive frames required before
+# accepting a new gesture mode.
+GESTURE_CONFIRM_FRAMES = 4
+
 SHOW_DEBUG = True
 
 
@@ -104,6 +111,11 @@ raw_cursor_y = SCREEN_HEIGHT // 2
 
 current_mode = "NEUTRAL"
 
+# Gesture stability state
+candidate_mode = "NEUTRAL"
+candidate_mode_count = 0
+stable_mode = "NEUTRAL"
+
 fps = 0
 
 
@@ -115,19 +127,28 @@ def get_distance(p1, p2):
     """
     Calculate Euclidean distance between two points.
     """
-    return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+
+    return math.hypot(
+        p2[0] - p1[0],
+        p2[1] - p1[1]
+    )
 
 
 def get_volume_percentage():
     """
     Return current Windows master volume as a percentage.
     """
+
     if volume is None:
         return None
 
     try:
         level = volume.GetMasterVolumeLevelScalar()
-        return int(round(float(level) * 100))
+
+        return int(
+            round(float(level) * 100)
+        )
+
     except Exception:
         return None
 
@@ -136,12 +157,16 @@ def clamp(value, minimum, maximum):
     """
     Clamp a value between minimum and maximum.
     """
-    return max(minimum, min(value, maximum))
+
+    return max(
+        minimum,
+        min(value, maximum)
+    )
 
 
 def calculate_adaptive_smoothing(distance):
     """
-    Calculate adaptive smoothing based on cursor movement distance.
+    Calculate adaptive smoothing based on cursor movement.
 
     Small movements:
         More smoothing
@@ -156,11 +181,13 @@ def calculate_adaptive_smoothing(distance):
         [MAX_SMOOTHING, MIN_SMOOTHING]
     )
 
-    return float(clamp(
-        normalized,
-        MIN_SMOOTHING,
-        MAX_SMOOTHING
-    ))
+    return float(
+        clamp(
+            normalized,
+            MIN_SMOOTHING,
+            MAX_SMOOTHING
+        )
+    )
 
 
 def map_cursor_coordinates(x, y):
@@ -182,14 +209,26 @@ def map_cursor_coordinates(x, y):
 
     mapped_x = np.interp(
         x,
-        [FRAME_R_MIN_X, FRAME_R_MAX_X],
-        [0, SCREEN_WIDTH]
+        [
+            FRAME_R_MIN_X,
+            FRAME_R_MAX_X
+        ],
+        [
+            0,
+            SCREEN_WIDTH
+        ]
     )
 
     mapped_y = np.interp(
         y,
-        [FRAME_R_MIN_Y, FRAME_R_MAX_Y],
-        [0, SCREEN_HEIGHT]
+        [
+            FRAME_R_MIN_Y,
+            FRAME_R_MAX_Y
+        ],
+        [
+            0,
+            SCREEN_HEIGHT
+        ]
     )
 
     return int(mapped_x), int(mapped_y)
@@ -230,17 +269,30 @@ def limit_cursor_jump(
     dx = target_x - current_x
     dy = target_y - current_y
 
-    distance = math.hypot(dx, dy)
+    distance = math.hypot(
+        dx,
+        dy
+    )
 
     if distance <= MAX_CURSOR_STEP:
         return target_x, target_y
 
     scale = MAX_CURSOR_STEP / distance
 
-    limited_x = current_x + dx * scale
-    limited_y = current_y + dy * scale
+    limited_x = (
+        current_x
+        + dx * scale
+    )
 
-    return int(limited_x), int(limited_y)
+    limited_y = (
+        current_y
+        + dy * scale
+    )
+
+    return (
+        int(limited_x),
+        int(limited_y)
+    )
 
 
 def calculate_cursor_position(
@@ -258,7 +310,10 @@ def calculate_cursor_position(
     4. Adaptive smoothing
     """
 
-    target_x, target_y = map_cursor_coordinates(x, y)
+    target_x, target_y = map_cursor_coordinates(
+        x,
+        y
+    )
 
     target_x, target_y = apply_deadzone(
         target_x,
@@ -285,15 +340,26 @@ def calculate_cursor_position(
 
     new_x = (
         current_x
-        + (target_x - current_x) * (1 - smoothing)
+        + (
+            target_x - current_x
+        ) * (
+            1 - smoothing
+        )
     )
 
     new_y = (
         current_y
-        + (target_y - current_y) * (1 - smoothing)
+        + (
+            target_y - current_y
+        ) * (
+            1 - smoothing
+        )
     )
 
-    return int(new_x), int(new_y)
+    return (
+        int(new_x),
+        int(new_y)
+    )
 
 
 # ============================================================
@@ -303,9 +369,11 @@ def calculate_cursor_position(
 if AudioUtilities is not None:
 
     try:
+
         devices = AudioUtilities.GetSpeakers()
 
         try:
+
             volume = devices.EndpointVolume
 
         except Exception:
@@ -321,10 +389,15 @@ if AudioUtilities is not None:
                 POINTER(IAudioEndpointVolume)
             )
 
-        print("🔊 Windows volume initialized.")
+        print(
+            "🔊 Windows volume initialized."
+        )
 
         try:
-            min_vol, max_vol, _ = volume.GetVolumeRange()
+
+            min_vol, max_vol, _ = (
+                volume.GetVolumeRange()
+            )
 
             print(
                 f"Volume range: "
@@ -372,7 +445,9 @@ cap.set(
 
 if not cap.isOpened():
 
-    print("❌ Could not open camera.")
+    print(
+        "❌ Could not open camera."
+    )
 
     raise SystemExit
 
@@ -393,36 +468,85 @@ detector = HandDetector(
 # ============================================================
 
 print()
+
 print("=" * 60)
-print("Virtual Mouse - Hand Gesture Controller")
-print(f"Version: {APP_VERSION}")
+
+print(
+    "Virtual Mouse - Hand Gesture Controller"
+)
+
+print(
+    f"Version: {APP_VERSION}"
+)
+
 print("=" * 60)
+
 print()
+
 print("Controls:")
 print()
+
 print("CURSOR")
-print("  Thumb + all four fingers extended")
-print("  Move index finger to control cursor")
+print(
+    "  Thumb + all four fingers extended"
+)
+print(
+    "  Move index finger to control cursor"
+)
+
 print()
+
 print("LEFT CLICK")
-print("  Thumb gesture / thumb-index pinch")
+print(
+    "  Thumb gesture / thumb-index pinch"
+)
+
 print()
+
 print("RIGHT CLICK")
-print("  Pinky gesture / thumb-pinky pinch")
+print(
+    "  Pinky gesture / thumb-pinky pinch"
+)
+
 print()
+
 print("VOLUME")
-print("  Index finger only")
-print("  Thumb + index distance controls volume")
+print(
+    "  Index finger only"
+)
+print(
+    "  Thumb + index distance controls volume"
+)
+
 print()
+
 print("SCROLL")
-print("  Index + optional middle finger")
+print(
+    "  Index + optional middle finger"
+)
+
 print()
+
 print("NEUTRAL")
-print("  Any unsupported gesture")
+print(
+    "  Any unsupported gesture"
+)
+
 print()
+
+print(
+    f"Gesture confirmation: "
+    f"{GESTURE_CONFIRM_FRAMES} frames"
+)
+
+print()
+
 print("Press Q or ESC to exit.")
+
 print()
+
 print("=" * 60)
+
 print()
 
 
@@ -436,7 +560,9 @@ while True:
 
     if not success:
 
-        print("⚠️ Failed to read frame.")
+        print(
+            "⚠️ Failed to read frame."
+        )
 
         continue
 
@@ -444,7 +570,10 @@ while True:
     # MIRROR CAMERA
     # --------------------------------------------------------
 
-    img = cv2.flip(img, 1)
+    img = cv2.flip(
+        img,
+        1
+    )
 
     # --------------------------------------------------------
     # HAND DETECTION
@@ -464,9 +593,15 @@ while True:
     # DEFAULT MODE
     # --------------------------------------------------------
 
-    mode = "NEUTRAL"
+    detected_mode = "NEUTRAL"
 
-    fingers = [0, 0, 0, 0, 0]
+    fingers = [
+        0,
+        0,
+        0,
+        0,
+        0
+    ]
 
     # --------------------------------------------------------
     # PROCESS HAND
@@ -529,7 +664,7 @@ while True:
             and pinky == 0
         ):
 
-            mode = "VOLUME"
+            detected_mode = "VOLUME"
 
         elif (
             index == 1
@@ -539,7 +674,7 @@ while True:
             and thumb == 0
         ):
 
-            mode = "SCROLL"
+            detected_mode = "SCROLL"
 
         elif (
             thumb == 1
@@ -549,280 +684,157 @@ while True:
             and pinky == 1
         ):
 
-            mode = "CURSOR"
+            detected_mode = "CURSOR"
 
         else:
 
-            mode = "NEUTRAL"
+            detected_mode = "NEUTRAL"
 
         # ----------------------------------------------------
-        # CURRENT TIME
+        # GESTURE CONFIRMATION
+        # ----------------------------------------------------
+        #
+        # A new gesture must remain consistent for several
+        # consecutive frames before becoming active.
+        #
+        # This prevents one noisy MediaPipe frame from
+        # immediately changing the active mode.
         # ----------------------------------------------------
 
-        current_time = time.time()
+        if detected_mode == candidate_mode:
 
-        # ====================================================
-        # CURSOR MODE
-        # ====================================================
+            candidate_mode_count += 1
 
-        if mode == "CURSOR":
+        else:
 
-            # ------------------------------------------------
-            # INDEX FINGER TIP
-            # ------------------------------------------------
+            candidate_mode = detected_mode
+            candidate_mode_count = 1
 
-            index_x = lmList[8][1]
-            index_y = lmList[8][2]
+        if (
+            candidate_mode_count
+            >= GESTURE_CONFIRM_FRAMES
+        ):
 
-            raw_cursor_x, raw_cursor_y = (
-                map_cursor_coordinates(
-                    index_x,
-                    index_y
-                )
-            )
+            stable_mode = candidate_mode
 
-            # ------------------------------------------------
-            # CALCULATE STABLE CURSOR
-            # ------------------------------------------------
+    else:
 
-            (
-                smoothed_cursor_x,
-                smoothed_cursor_y
-            ) = calculate_cursor_position(
+        # ----------------------------------------------------
+        # NO HAND DETECTED
+        # ----------------------------------------------------
+        #
+        # Immediately stop gesture actions so that an old
+        # gesture cannot remain active after the hand leaves
+        # the camera frame.
+        # ----------------------------------------------------
+
+        detected_mode = "NEUTRAL"
+
+        candidate_mode = "NEUTRAL"
+
+        candidate_mode_count = 0
+
+        stable_mode = "NEUTRAL"
+
+    # --------------------------------------------------------
+    # CURRENT TIME
+    # --------------------------------------------------------
+
+    current_time = time.time()
+
+    # ========================================================
+    # CURSOR MODE
+    # ========================================================
+
+    if stable_mode == "CURSOR":
+
+        # ----------------------------------------------------
+        # INDEX FINGER TIP
+        # ----------------------------------------------------
+
+        index_x = lmList[8][1]
+        index_y = lmList[8][2]
+
+        raw_cursor_x, raw_cursor_y = (
+            map_cursor_coordinates(
                 index_x,
-                index_y,
+                index_y
+            )
+        )
+
+        # ----------------------------------------------------
+        # CALCULATE STABLE CURSOR
+        # ----------------------------------------------------
+
+        (
+            smoothed_cursor_x,
+            smoothed_cursor_y
+        ) = calculate_cursor_position(
+            index_x,
+            index_y,
+            smoothed_cursor_x,
+            smoothed_cursor_y
+        )
+
+        # ----------------------------------------------------
+        # MOVE CURSOR
+        # ----------------------------------------------------
+
+        try:
+
+            pyautogui.moveTo(
                 smoothed_cursor_x,
-                smoothed_cursor_y
+                smoothed_cursor_y,
+                duration=0
             )
 
-            # ------------------------------------------------
-            # MOVE CURSOR
-            # ------------------------------------------------
+        except Exception as e:
 
-            try:
+            if SHOW_DEBUG:
 
-                pyautogui.moveTo(
-                    smoothed_cursor_x,
-                    smoothed_cursor_y,
-                    duration=0
+                print(
+                    f"⚠️ Cursor movement error: {e}"
                 )
 
-            except Exception as e:
+        # ----------------------------------------------------
+        # LEFT CLICK
+        # ----------------------------------------------------
 
-                if SHOW_DEBUG:
+        thumb_x = lmList[4][1]
+        thumb_y = lmList[4][2]
 
-                    print(
-                        f"⚠️ Cursor movement error: {e}"
-                    )
+        wrist_x = lmList[0][1]
+        wrist_y = lmList[0][2]
 
-            # ------------------------------------------------
-            # LEFT CLICK
-            # ------------------------------------------------
+        thumb_palm_distance = get_distance(
+            (thumb_x, thumb_y),
+            (wrist_x, wrist_y)
+        )
 
-            thumb_x = lmList[4][1]
-            thumb_y = lmList[4][2]
+        thumb_index_distance = get_distance(
+            (lmList[4][1], lmList[4][2]),
+            (lmList[8][1], lmList[8][2])
+        )
 
-            wrist_x = lmList[0][1]
-            wrist_y = lmList[0][2]
-
-            thumb_palm_distance = get_distance(
-                (thumb_x, thumb_y),
-                (wrist_x, wrist_y)
-            )
-
-            thumb_index_distance = get_distance(
-                (lmList[4][1], lmList[4][2]),
-                (lmList[8][1], lmList[8][2])
-            )
-
-            if (
-                thumb_palm_distance < CLICK_THRESHOLD
-                or thumb_index_distance < 35
-            ):
-
-                if (
-                    current_time - last_left_click
-                    >= LEFT_CLICK_COOLDOWN
-                ):
-
-                    try:
-
-                        pyautogui.click()
-
-                        last_left_click = current_time
-
-                    except Exception as e:
-
-                        if SHOW_DEBUG:
-
-                            print(
-                                f"⚠️ Left click error: {e}"
-                            )
-
-            # ------------------------------------------------
-            # RIGHT CLICK
-            # ------------------------------------------------
-
-            pinky_x = lmList[20][1]
-            pinky_y = lmList[20][2]
-
-            pinky_palm_distance = get_distance(
-                (pinky_x, pinky_y),
-                (wrist_x, wrist_y)
-            )
-
-            thumb_pinky_distance = get_distance(
-                (lmList[4][1], lmList[4][2]),
-                (lmList[20][1], lmList[20][2])
-            )
+        if (
+            thumb_palm_distance
+            < CLICK_THRESHOLD
+            or
+            thumb_index_distance < 35
+        ):
 
             if (
-                pinky_palm_distance
-                < RIGHT_CLICK_THRESHOLD
-                or thumb_pinky_distance < 40
+                current_time
+                - last_left_click
+                >= LEFT_CLICK_COOLDOWN
             ):
-
-                if (
-                    current_time - last_right_click
-                    >= RIGHT_CLICK_COOLDOWN
-                ):
-
-                    try:
-
-                        pyautogui.rightClick()
-
-                        last_right_click = current_time
-
-                    except Exception as e:
-
-                        if SHOW_DEBUG:
-
-                            print(
-                                f"⚠️ Right click error: {e}"
-                            )
-
-        # ====================================================
-        # SCROLL MODE
-        # ====================================================
-
-        elif mode == "SCROLL":
-
-            current_time = time.time()
-
-            if (
-                current_time - last_scroll_time
-                >= 0.08
-            ):
-
-                # ------------------------------------------------
-                # INDEX FINGER Y POSITION
-                # ------------------------------------------------
-
-                index_y = lmList[8][2]
-
-                # ------------------------------------------------
-                # MIDDLE FINGER Y POSITION
-                # ------------------------------------------------
-
-                middle_y = lmList[12][2]
-
-                # ------------------------------------------------
-                # USE INDEX POSITION FOR SCROLL DIRECTION
-                # ------------------------------------------------
-
-                center_y = (
-                    FRAME_R_MIN_Y
-                    + FRAME_R_MAX_Y
-                ) / 2
-
-                if index_y < center_y - 35:
-
-                    try:
-
-                        pyautogui.scroll(
-                            1
-                        )
-
-                    except Exception as e:
-
-                        if SHOW_DEBUG:
-
-                            print(
-                                f"⚠️ Scroll error: {e}"
-                            )
-
-                elif index_y > center_y + 35:
-
-                    try:
-
-                        pyautogui.scroll(
-                            -1
-                        )
-
-                    except Exception as e:
-
-                        if SHOW_DEBUG:
-
-                            print(
-                                f"⚠️ Scroll error: {e}"
-                            )
-
-                last_scroll_time = current_time
-
-        # ====================================================
-        # VOLUME MODE
-        # ====================================================
-
-        elif mode == "VOLUME":
-
-            # ------------------------------------------------
-            # THUMB + INDEX DISTANCE
-            # ------------------------------------------------
-
-            thumb_x = lmList[4][1]
-            thumb_y = lmList[4][2]
-
-            index_x = lmList[8][1]
-            index_y = lmList[8][2]
-
-            distance = get_distance(
-                (thumb_x, thumb_y),
-                (index_x, index_y)
-            )
-
-            # ------------------------------------------------
-            # VOLUME RANGE
-            # ------------------------------------------------
-
-            if volume is not None:
 
                 try:
 
-                    min_vol, max_vol, _ = (
-                        volume.GetVolumeRange()
-                    )
+                    pyautogui.click()
 
-                    volume_level = np.interp(
-                        distance,
-                        [
-                            VOLUME_MIN_DISTANCE,
-                            VOLUME_MAX_DISTANCE
-                        ],
-                        [
-                            min_vol,
-                            max_vol
-                        ]
-                    )
-
-                    volume_level = clamp(
-                        volume_level,
-                        min_vol,
-                        max_vol
-                    )
-
-                    volume.SetMasterVolumeLevel(
-                        float(volume_level),
-                        None
+                    last_left_click = (
+                        current_time
                     )
 
                 except Exception as e:
@@ -830,36 +842,225 @@ while True:
                     if SHOW_DEBUG:
 
                         print(
-                            f"⚠️ Volume control error: {e}"
+                            f"⚠️ Left click error: {e}"
+                        )
+
+        # ----------------------------------------------------
+        # RIGHT CLICK
+        # ----------------------------------------------------
+
+        pinky_x = lmList[20][1]
+        pinky_y = lmList[20][2]
+
+        pinky_palm_distance = get_distance(
+            (pinky_x, pinky_y),
+            (wrist_x, wrist_y)
+        )
+
+        thumb_pinky_distance = get_distance(
+            (lmList[4][1], lmList[4][2]),
+            (lmList[20][1], lmList[20][2])
+        )
+
+        if (
+            pinky_palm_distance
+            < RIGHT_CLICK_THRESHOLD
+            or
+            thumb_pinky_distance < 40
+        ):
+
+            if (
+                current_time
+                - last_right_click
+                >= RIGHT_CLICK_COOLDOWN
+            ):
+
+                try:
+
+                    pyautogui.rightClick()
+
+                    last_right_click = (
+                        current_time
+                    )
+
+                except Exception as e:
+
+                    if SHOW_DEBUG:
+
+                        print(
+                            f"⚠️ Right click error: {e}"
+                        )
+
+    # ========================================================
+    # SCROLL MODE
+    # ========================================================
+
+    elif stable_mode == "SCROLL":
+
+        current_time = time.time()
+
+        if (
+            current_time
+            - last_scroll_time
+            >= 0.08
+        ):
+
+            # ------------------------------------------------
+            # INDEX FINGER Y POSITION
+            # ------------------------------------------------
+
+            index_y = lmList[8][2]
+
+            # ------------------------------------------------
+            # MIDDLE FINGER Y POSITION
+            # ------------------------------------------------
+
+            middle_y = lmList[12][2]
+
+            # ------------------------------------------------
+            # SCROLL CENTER
+            # ------------------------------------------------
+
+            center_y = (
+                FRAME_R_MIN_Y
+                + FRAME_R_MAX_Y
+            ) / 2
+
+            # ------------------------------------------------
+            # SCROLL UP
+            # ------------------------------------------------
+
+            if index_y < center_y - 35:
+
+                try:
+
+                    pyautogui.scroll(
+                        1
+                    )
+
+                except Exception as e:
+
+                    if SHOW_DEBUG:
+
+                        print(
+                            f"⚠️ Scroll error: {e}"
                         )
 
             # ------------------------------------------------
-            # DISPLAY VOLUME DISTANCE
+            # SCROLL DOWN
             # ------------------------------------------------
 
-            cv2.putText(
-                img,
-                f"Distance: {int(distance)}",
-                (15, 125),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (255, 255, 255),
-                2
+            elif index_y > center_y + 35:
+
+                try:
+
+                    pyautogui.scroll(
+                        -1
+                    )
+
+                except Exception as e:
+
+                    if SHOW_DEBUG:
+
+                        print(
+                            f"⚠️ Scroll error: {e}"
+                        )
+
+            last_scroll_time = (
+                current_time
             )
 
-        # ====================================================
-        # NEUTRAL MODE
-        # ====================================================
+    # ========================================================
+    # VOLUME MODE
+    # ========================================================
 
-        elif mode == "NEUTRAL":
+    elif stable_mode == "VOLUME":
 
-            pass
+        # ----------------------------------------------------
+        # THUMB + INDEX DISTANCE
+        # ----------------------------------------------------
+
+        thumb_x = lmList[4][1]
+        thumb_y = lmList[4][2]
+
+        index_x = lmList[8][1]
+        index_y = lmList[8][2]
+
+        distance = get_distance(
+            (thumb_x, thumb_y),
+            (index_x, index_y)
+        )
+
+        # ----------------------------------------------------
+        # VOLUME CONTROL
+        # ----------------------------------------------------
+
+        if volume is not None:
+
+            try:
+
+                min_vol, max_vol, _ = (
+                    volume.GetVolumeRange()
+                )
+
+                volume_level = np.interp(
+                    distance,
+                    [
+                        VOLUME_MIN_DISTANCE,
+                        VOLUME_MAX_DISTANCE
+                    ],
+                    [
+                        min_vol,
+                        max_vol
+                    ]
+                )
+
+                volume_level = clamp(
+                    volume_level,
+                    min_vol,
+                    max_vol
+                )
+
+                volume.SetMasterVolumeLevel(
+                    float(volume_level),
+                    None
+                )
+
+            except Exception as e:
+
+                if SHOW_DEBUG:
+
+                    print(
+                        f"⚠️ Volume control error: {e}"
+                    )
+
+        # ----------------------------------------------------
+        # DISPLAY VOLUME DISTANCE
+        # ----------------------------------------------------
+
+        cv2.putText(
+            img,
+            f"Distance: {int(distance)}",
+            (15, 125),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            2
+        )
+
+    # ========================================================
+    # NEUTRAL MODE
+    # ========================================================
+
+    elif stable_mode == "NEUTRAL":
+
+        pass
 
     # ========================================================
     # MODE UPDATE
     # ========================================================
 
-    current_mode = mode
+    current_mode = stable_mode
 
     # ========================================================
     # FPS CALCULATION
@@ -869,9 +1070,14 @@ while True:
 
     if prev_time != 0:
 
-        fps = 1 / (
-            current_time - prev_time
+        time_difference = (
+            current_time
+            - prev_time
         )
+
+        if time_difference > 0:
+
+            fps = 1 / time_difference
 
     prev_time = current_time
 
@@ -921,7 +1127,9 @@ while True:
 
     if volume is not None:
 
-        current_volume = get_volume_percentage()
+        current_volume = (
+            get_volume_percentage()
+        )
 
         if current_volume is not None:
 
@@ -1014,7 +1222,7 @@ while True:
         )
 
         # ----------------------------------------------------
-        # FRAME RANGE
+        # FRAME RANGE X
         # ----------------------------------------------------
 
         cv2.putText(
@@ -1031,6 +1239,10 @@ while True:
             1
         )
 
+        # ----------------------------------------------------
+        # FRAME RANGE Y
+        # ----------------------------------------------------
+
         cv2.putText(
             img,
             (
@@ -1039,6 +1251,25 @@ while True:
                 f"{FRAME_R_MAX_Y}"
             ),
             (15, 235),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1
+        )
+
+        # ----------------------------------------------------
+        # GESTURE CONFIRMATION STATUS
+        # ----------------------------------------------------
+
+        cv2.putText(
+            img,
+            (
+                f"Gesture: "
+                f"{candidate_mode} "
+                f"{candidate_mode_count}/"
+                f"{GESTURE_CONFIRM_FRAMES}"
+            ),
+            (15, 255),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             (255, 255, 255),
@@ -1074,7 +1305,10 @@ while True:
 
     key = cv2.waitKey(1) & 0xFF
 
-    if key == ord("q") or key == 27:
+    if (
+        key == ord("q")
+        or key == 27
+    ):
 
         break
 
@@ -1084,10 +1318,15 @@ while True:
 # ============================================================
 
 print()
-print("Shutting down Virtual Mouse...")
+
+print(
+    "Shutting down Virtual Mouse..."
+)
 
 cap.release()
 
 cv2.destroyAllWindows()
 
-print("Virtual Mouse stopped cleanly.")
+print(
+    "Virtual Mouse stopped cleanly."
+)
