@@ -9,6 +9,26 @@ from HandTrackingModule import HandDetector
 
 
 # ============================================================
+# VIRTUAL MOUSE v1.2
+# ============================================================
+#
+# Features:
+# - Real-time hand tracking
+# - Gesture-based cursor control
+# - Right click
+# - Scrolling
+# - Windows volume control
+# - FPS display
+#
+# v1.2 improvements:
+# - Adaptive cursor smoothing
+# - Cursor dead-zone filtering
+# - Maximum cursor jump protection
+#
+# ============================================================
+
+
+# ============================================================
 # CAMERA
 # ============================================================
 
@@ -20,6 +40,7 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, wCam)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, hCam)
 
 if not cap.isOpened():
+
     print("ERROR: Could not open camera.")
     raise SystemExit
 
@@ -40,6 +61,7 @@ detector = HandDetector(
 # ============================================================
 
 try:
+
     devices = AudioUtilities.GetSpeakers()
     volume = devices.EndpointVolume
 
@@ -51,10 +73,12 @@ try:
     audio_available = True
 
 except Exception as e:
+
     print("WARNING: Windows volume control unavailable.")
     print(e)
 
     volume = None
+
     minVol = -65
     maxVol = 0
 
@@ -62,7 +86,7 @@ except Exception as e:
 
 
 # ============================================================
-# SETTINGS
+# GENERAL SETTINGS
 # ============================================================
 
 hmin = 50
@@ -83,10 +107,59 @@ pyautogui.FAILSAFE = False
 
 screenWidth, screenHeight = pyautogui.size()
 
-SMOOTHING_FACTOR = 0.5
+
+# ============================================================
+# CURSOR SETTINGS - v1.2
+# ============================================================
+
+# Camera rectangle used for cursor movement.
+
+FRAME_R_MIN_X = 110
+FRAME_R_MAX_X = 620
+
+FRAME_R_MIN_Y = 20
+FRAME_R_MAX_Y = 350
+
+
+# Small movements below this value are ignored.
+# This helps reduce hand-tracking jitter.
+
+CURSOR_DEADZONE = 2.5
+
+
+# Prevents a tracking error from moving the cursor
+# an extremely large distance in a single frame.
+
+MAX_CURSOR_STEP = 100
+
+
+# Adaptive smoothing range.
+#
+# Slow movement:
+# More smoothing = more stable cursor
+#
+# Fast movement:
+# Less smoothing = faster response
+
+MIN_SMOOTHING = 0.30
+MAX_SMOOTHING = 0.75
+
+
+# Current smoothed cursor position.
 
 prev_cursor_x = screenWidth // 2
 prev_cursor_y = screenHeight // 2
+
+
+# Previous raw mapped cursor position.
+
+prev_raw_x = prev_cursor_x
+prev_raw_y = prev_cursor_y
+
+
+# ============================================================
+# CLICK SETTINGS
+# ============================================================
 
 CLICK_THRESHOLD = 40
 RIGHT_CLICK_THRESHOLD = 50
@@ -94,14 +167,23 @@ RIGHT_CLICK_THRESHOLD = 50
 left_click_ready = True
 right_click_ready = True
 
+
+# ============================================================
+# FPS
+# ============================================================
+
 pTime = time.time()
 
 
 # ============================================================
-# TEXT
+# TEXT FUNCTION
 # ============================================================
 
-def putText(text, loc=(250, 450), color=(0, 255, 255)):
+def putText(
+    text,
+    loc=(250, 450),
+    color=(0, 255, 255)
+):
 
     cv2.putText(
         img,
@@ -120,16 +202,16 @@ def putText(text, loc=(250, 450), color=(0, 255, 255)):
 
 def get_fingers(lmList):
 
-    # IMPORTANT:
     # A complete hand must have 21 landmarks.
 
     if not lmList or len(lmList) < 21:
+
         return []
 
     fingers = []
 
     # --------------------------------------------------------
-    # Thumb
+    # THUMB
     # --------------------------------------------------------
 
     if lmList[4][1] > lmList[3][1]:
@@ -141,7 +223,7 @@ def get_fingers(lmList):
         fingers.append(0)
 
     # --------------------------------------------------------
-    # Index, Middle, Ring, Pinky
+    # INDEX, MIDDLE, RING, PINKY
     # --------------------------------------------------------
 
     for i in range(1, 5):
@@ -158,13 +240,136 @@ def get_fingers(lmList):
             fingers.append(0)
 
     # --------------------------------------------------------
-    # Safety
+    # SAFETY
     # --------------------------------------------------------
 
     if len(fingers) != 5:
+
         return []
 
     return fingers
+
+
+# ============================================================
+# ADAPTIVE CURSOR SMOOTHING
+# ============================================================
+
+def smooth_cursor(
+    target_x,
+    target_y,
+    previous_x,
+    previous_y,
+    previous_raw_x,
+    previous_raw_y
+):
+    """
+    Adaptive cursor smoothing.
+
+    Slow hand movement:
+        More smoothing -> less jitter.
+
+    Fast hand movement:
+        Less smoothing -> faster response.
+    """
+
+    # --------------------------------------------------------
+    # Calculate raw movement
+    # --------------------------------------------------------
+
+    raw_dx = target_x - previous_raw_x
+    raw_dy = target_y - previous_raw_y
+
+    movement = math.hypot(
+        raw_dx,
+        raw_dy
+    )
+
+    # --------------------------------------------------------
+    # Adaptive smoothing
+    # --------------------------------------------------------
+
+    smoothing = np.interp(
+        movement,
+        [0, 80],
+        [MAX_SMOOTHING, MIN_SMOOTHING]
+    )
+
+    smoothing = float(
+        np.clip(
+            smoothing,
+            MIN_SMOOTHING,
+            MAX_SMOOTHING
+        )
+    )
+
+    # --------------------------------------------------------
+    # Smooth cursor position
+    # --------------------------------------------------------
+
+    new_x = (
+        smoothing * target_x
+        +
+        (1 - smoothing) * previous_x
+    )
+
+    new_y = (
+        smoothing * target_y
+        +
+        (1 - smoothing) * previous_y
+    )
+
+    # --------------------------------------------------------
+    # Dead-zone filtering
+    # --------------------------------------------------------
+
+    if abs(new_x - previous_x) < CURSOR_DEADZONE:
+
+        new_x = previous_x
+
+    if abs(new_y - previous_y) < CURSOR_DEADZONE:
+
+        new_y = previous_y
+
+    # --------------------------------------------------------
+    # Maximum cursor movement protection
+    # --------------------------------------------------------
+
+    delta_x = new_x - previous_x
+    delta_y = new_y - previous_y
+
+    distance = math.hypot(
+        delta_x,
+        delta_y
+    )
+
+    if distance > MAX_CURSOR_STEP:
+
+        scale = MAX_CURSOR_STEP / distance
+
+        new_x = previous_x + delta_x * scale
+        new_y = previous_y + delta_y * scale
+
+    # --------------------------------------------------------
+    # Screen boundaries
+    # --------------------------------------------------------
+
+    new_x = int(
+        np.clip(
+            new_x,
+            0,
+            screenWidth - 1
+        )
+    )
+
+    new_y = int(
+        np.clip(
+            new_y,
+            0,
+            screenHeight - 1
+        )
+    )
+
+    return new_x, new_y
 
 
 # ============================================================
@@ -175,9 +380,9 @@ try:
 
     while True:
 
-        # ----------------------------------------------------
+        # ====================================================
         # CAMERA FRAME
-        # ----------------------------------------------------
+        # ====================================================
 
         success, img = cap.read()
 
@@ -186,12 +391,16 @@ try:
             print("Failed to capture frame.")
             break
 
-        # Mirror camera
-        img = cv2.flip(img, 1)
+        # Mirror the webcam.
 
-        # ----------------------------------------------------
+        img = cv2.flip(
+            img,
+            1
+        )
+
+        # ====================================================
         # HAND DETECTION
-        # ----------------------------------------------------
+        # ====================================================
 
         img = detector.find_hands(
             img,
@@ -203,11 +412,13 @@ try:
             draw=False
         )
 
-        # ----------------------------------------------------
-        # FINGERS
-        # ----------------------------------------------------
+        # ====================================================
+        # FINGER DETECTION
+        # ====================================================
 
-        fingers = get_fingers(lmList)
+        fingers = get_fingers(
+            lmList
+        )
 
         # ====================================================
         # MODE SELECTION
@@ -216,7 +427,7 @@ try:
         if len(fingers) == 5:
 
             # ------------------------------------------------
-            # Neutral
+            # NEUTRAL
             # ------------------------------------------------
 
             if (
@@ -227,7 +438,7 @@ try:
                 mode = "N"
 
             # ------------------------------------------------
-            # Scroll
+            # SCROLL
             # ------------------------------------------------
 
             elif (
@@ -243,7 +454,7 @@ try:
                 active = 1
 
             # ------------------------------------------------
-            # Volume
+            # VOLUME
             # ------------------------------------------------
 
             elif (
@@ -255,7 +466,7 @@ try:
                 active = 1
 
             # ------------------------------------------------
-            # Cursor
+            # CURSOR
             # ------------------------------------------------
 
             elif (
@@ -267,7 +478,7 @@ try:
                 active = 1
 
         # ====================================================
-        # SCROLL
+        # SCROLL MODE
         # ====================================================
 
         if mode == "Scroll":
@@ -288,6 +499,10 @@ try:
                     x2 = lmList[12][1]
                     y2 = lmList[12][2]
 
+                    # ----------------------------------------
+                    # Draw fingertips
+                    # ----------------------------------------
+
                     cv2.circle(
                         img,
                         (x1, y1),
@@ -303,6 +518,10 @@ try:
                         (0, 255, 0),
                         cv2.FILLED
                     )
+
+                    # ----------------------------------------
+                    # Draw line
+                    # ----------------------------------------
 
                     cv2.line(
                         img,
@@ -311,6 +530,10 @@ try:
                         (0, 255, 0),
                         3
                     )
+
+                    # ----------------------------------------
+                    # Scroll direction
+                    # ----------------------------------------
 
                     if abs(y2 - y1) > 50:
 
@@ -322,7 +545,9 @@ try:
                                 (0, 255, 0)
                             )
 
-                            pyautogui.scroll(3)
+                            pyautogui.scroll(
+                                3
+                            )
 
                         else:
 
@@ -332,7 +557,9 @@ try:
                                 (0, 0, 255)
                             )
 
-                            pyautogui.scroll(-3)
+                            pyautogui.scroll(
+                                -3
+                            )
 
                     else:
 
@@ -349,12 +576,11 @@ try:
 
             else:
 
-                # Hand disappeared
                 active = 0
                 mode = "N"
 
         # ====================================================
-        # VOLUME
+        # VOLUME MODE
         # ====================================================
 
         if mode == "Volume":
@@ -365,10 +591,12 @@ try:
                 (0, 255, 255)
             )
 
-            # NEVER access fingers[-1] unless we have 5 fingers
             if len(fingers) == 5:
 
+                # ------------------------------------------------
                 # Pinky open = leave volume mode
+                # ------------------------------------------------
+
                 if fingers[4] == 1:
 
                     active = 0
@@ -376,14 +604,30 @@ try:
 
                 else:
 
+                    # --------------------------------------------
+                    # Thumb
+                    # --------------------------------------------
+
                     x1 = lmList[4][1]
                     y1 = lmList[4][2]
+
+                    # --------------------------------------------
+                    # Index
+                    # --------------------------------------------
 
                     x2 = lmList[8][1]
                     y2 = lmList[8][2]
 
+                    # --------------------------------------------
+                    # Center point
+                    # --------------------------------------------
+
                     cx = (x1 + x2) // 2
                     cy = (y1 + y2) // 2
+
+                    # --------------------------------------------
+                    # Draw thumb
+                    # --------------------------------------------
 
                     cv2.circle(
                         img,
@@ -393,6 +637,10 @@ try:
                         cv2.FILLED
                     )
 
+                    # --------------------------------------------
+                    # Draw index
+                    # --------------------------------------------
+
                     cv2.circle(
                         img,
                         (x2, y2),
@@ -400,6 +648,10 @@ try:
                         color,
                         cv2.FILLED
                     )
+
+                    # --------------------------------------------
+                    # Draw connection
+                    # --------------------------------------------
 
                     cv2.line(
                         img,
@@ -409,6 +661,10 @@ try:
                         3
                     )
 
+                    # --------------------------------------------
+                    # Center
+                    # --------------------------------------------
+
                     cv2.circle(
                         img,
                         (cx, cy),
@@ -417,14 +673,18 @@ try:
                         cv2.FILLED
                     )
 
-                    # ----------------------------------------
-                    # Distance between thumb and index
-                    # ----------------------------------------
+                    # --------------------------------------------
+                    # Distance
+                    # --------------------------------------------
 
                     length = math.hypot(
                         x2 - x1,
                         y2 - y1
                     )
+
+                    # --------------------------------------------
+                    # Volume mapping
+                    # --------------------------------------------
 
                     vol = np.interp(
                         length,
@@ -432,11 +692,19 @@ try:
                         [minVol, maxVol]
                     )
 
+                    # --------------------------------------------
+                    # Volume bar
+                    # --------------------------------------------
+
                     volBar = np.interp(
                         vol,
                         [minVol, maxVol],
                         [400, 150]
                     )
+
+                    # --------------------------------------------
+                    # Volume percentage
+                    # --------------------------------------------
 
                     volPer = np.interp(
                         vol,
@@ -444,9 +712,9 @@ try:
                         [0, 100]
                     )
 
-                    # ----------------------------------------
-                    # Set volume
-                    # ----------------------------------------
+                    # --------------------------------------------
+                    # Set system volume
+                    # --------------------------------------------
 
                     if audio_available:
 
@@ -458,11 +726,12 @@ try:
                             )
 
                         except Exception:
+
                             pass
 
-                    # ----------------------------------------
+                    # --------------------------------------------
                     # Minimum indicator
-                    # ----------------------------------------
+                    # --------------------------------------------
 
                     if length < 50:
 
@@ -474,9 +743,9 @@ try:
                             cv2.FILLED
                         )
 
-                    # ----------------------------------------
-                    # Volume bar
-                    # ----------------------------------------
+                    # --------------------------------------------
+                    # Volume bar outline
+                    # --------------------------------------------
 
                     cv2.rectangle(
                         img,
@@ -486,6 +755,10 @@ try:
                         3
                     )
 
+                    # --------------------------------------------
+                    # Volume bar fill
+                    # --------------------------------------------
+
                     cv2.rectangle(
                         img,
                         (30, int(volBar)),
@@ -493,6 +766,10 @@ try:
                         (215, 255, 127),
                         cv2.FILLED
                     )
+
+                    # --------------------------------------------
+                    # Volume percentage
+                    # --------------------------------------------
 
                     cv2.putText(
                         img,
@@ -510,7 +787,7 @@ try:
                 mode = "N"
 
         # ====================================================
-        # CURSOR
+        # CURSOR MODE
         # ====================================================
 
         if mode == "Cursor":
@@ -521,10 +798,20 @@ try:
                 (0, 255, 255)
             )
 
+            # ------------------------------------------------
+            # Cursor control rectangle
+            # ------------------------------------------------
+
             cv2.rectangle(
                 img,
-                (110, 20),
-                (620, 350),
+                (
+                    FRAME_R_MIN_X,
+                    FRAME_R_MIN_Y
+                ),
+                (
+                    FRAME_R_MAX_X,
+                    FRAME_R_MAX_Y
+                ),
                 (255, 255, 255),
                 3
             )
@@ -532,7 +819,7 @@ try:
             if len(fingers) == 5:
 
                 # ------------------------------------------------
-                # Release cursor mode
+                # Leave cursor mode
                 # ------------------------------------------------
 
                 if fingers[1:] == [0, 0, 0, 0]:
@@ -545,56 +832,99 @@ try:
 
                 else:
 
-                    # ------------------------------------------------
-                    # Index finger
-                    # ------------------------------------------------
+                    # =================================================
+                    # INDEX FINGER
+                    # =================================================
 
                     x1 = lmList[8][1]
                     y1 = lmList[8][2]
 
                     # ------------------------------------------------
-                    # Screen coordinates
+                    # Draw index fingertip
                     # ------------------------------------------------
 
-                    X = int(
+                    cv2.circle(
+                        img,
+                        (x1, y1),
+                        10,
+                        (0, 255, 0),
+                        cv2.FILLED
+                    )
+
+                    # =================================================
+                    # MAP CAMERA TO SCREEN
+                    # =================================================
+
+                    raw_X = int(
                         np.interp(
                             x1,
-                            [110, 620],
-                            [0, screenWidth - 1]
+                            [
+                                FRAME_R_MIN_X,
+                                FRAME_R_MAX_X
+                            ],
+                            [
+                                0,
+                                screenWidth - 1
+                            ]
                         )
                     )
 
-                    Y = int(
+                    raw_Y = int(
                         np.interp(
                             y1,
-                            [20, 350],
-                            [0, screenHeight - 1]
+                            [
+                                FRAME_R_MIN_Y,
+                                FRAME_R_MAX_Y
+                            ],
+                            [
+                                0,
+                                screenHeight - 1
+                            ]
                         )
                     )
 
                     # ------------------------------------------------
-                    # Smooth cursor
+                    # Clamp raw coordinates
                     # ------------------------------------------------
 
-                    X = int(
-                        SMOOTHING_FACTOR * X
-                        +
-                        (1 - SMOOTHING_FACTOR)
-                        * prev_cursor_x
+                    raw_X = int(
+                        np.clip(
+                            raw_X,
+                            0,
+                            screenWidth - 1
+                        )
                     )
 
-                    Y = int(
-                        SMOOTHING_FACTOR * Y
-                        +
-                        (1 - SMOOTHING_FACTOR)
-                        * prev_cursor_y
+                    raw_Y = int(
+                        np.clip(
+                            raw_Y,
+                            0,
+                            screenHeight - 1
+                        )
                     )
 
-                    prev_cursor_x = X
-                    prev_cursor_y = Y
+                    # =================================================
+                    # ADAPTIVE SMOOTHING
+                    # =================================================
+
+                    X, Y = smooth_cursor(
+                        raw_X,
+                        raw_Y,
+                        prev_cursor_x,
+                        prev_cursor_y,
+                        prev_raw_x,
+                        prev_raw_y
+                    )
 
                     # ------------------------------------------------
-                    # Move mouse
+                    # Save raw position
+                    # ------------------------------------------------
+
+                    prev_raw_x = raw_X
+                    prev_raw_y = raw_Y
+
+                    # ------------------------------------------------
+                    # Move cursor
                     # ------------------------------------------------
 
                     pyautogui.moveTo(
@@ -603,8 +933,15 @@ try:
                     )
 
                     # ------------------------------------------------
-                    # Palm
+                    # Save smoothed position
                     # ------------------------------------------------
+
+                    prev_cursor_x = X
+                    prev_cursor_y = Y
+
+                    # =================================================
+                    # PALM
+                    # =================================================
 
                     palm_x = lmList[9][1]
                     palm_y = lmList[9][2]
@@ -675,7 +1012,10 @@ try:
 
             else:
 
+                # ------------------------------------------------
                 # Hand disappeared
+                # ------------------------------------------------
+
                 active = 0
                 mode = "N"
 
@@ -749,17 +1089,31 @@ try:
             img
         )
 
-        # Q = quit
+        # ====================================================
+        # KEYBOARD
+        # ====================================================
+
         key = cv2.waitKey(1) & 0xFF
 
+        # Q = quit
+
         if key == ord("q"):
+
             break
 
+
+# ============================================================
+# KEYBOARD INTERRUPT
+# ============================================================
 
 except KeyboardInterrupt:
 
     print("\nProgram stopped by user.")
 
+
+# ============================================================
+# UNEXPECTED ERROR
+# ============================================================
 
 except Exception as e:
 
@@ -768,6 +1122,10 @@ except Exception as e:
     print(e)
 
 
+# ============================================================
+# CLEANUP
+# ============================================================
+
 finally:
 
     cap.release()
@@ -775,8 +1133,11 @@ finally:
     cv2.destroyAllWindows()
 
     try:
+
         detector.close()
+
     except Exception:
+
         pass
 
     print("Virtual Mouse stopped.")
